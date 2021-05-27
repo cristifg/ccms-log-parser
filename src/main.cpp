@@ -129,13 +129,31 @@ void printBlog(BLog& blog) {
 vector<int> getAllPos(const string& chunkBuffer, const regex& reg, const int initialPos) {
     vector<int> positions;
     smatch matching;
-    auto start = chunkBuffer.cbegin();
-    for (;regex_search(start, chunkBuffer.cend(), matching, reg);) {
-        for (int i = 0; i < matching.size(); ++i) {
-            positions.push_back(matching.position(i + 1) + initialPos);
-        }
-        start = matching[0].second;
+    auto start = sregex_iterator(chunkBuffer.begin(), chunkBuffer.end(), reg);
+    auto end = sregex_iterator();
+    for (auto i = start; i != end; ++i) {
+        matching = *i;
+        // int pos = matching.position(0) + initialPos;
+        positions.push_back(matching.position() + initialPos);
+        // fprintf(stdout, "Found %d matches in chunk size %d and initialpos %d at pos %d %s\n", matching.size(), chunkBuffer.size(), initialPos, pos, matching[0].str().c_str());
     }
+    // auto start = chunkBuffer.cbegin();
+    // for (;regex_search(start, chunkBuffer.cend(), matching, reg);) {
+    //     positions.push_back(matching.position() + initialPos);
+    //     // for (int i = 0; i < matching.size(); ++i) {
+    //     //     // if (initialPos == 0) {
+    //             int pos = matching.position(0) + initialPos;
+    //     //         // fprintf(stdout, "MATCH : %s pos : %d\n", matching[i].str().c_str(), pos);
+    //     //     // }
+    //         fprintf(stdout, "Found %d matches in chunk size %d and initialpos %d at pos %d %s\n", matching.size(), chunkBuffer.size(), initialPos, pos, matching[0].str().c_str());
+    //     //     positions.push_back(matching.position(i + 1) + initialPos);
+    //     //     // fprintf(stdout, "pos : %d \n", pos);
+    //     // }
+    //     // start = matching[0].second;
+    //     start = matching[0].second;
+    // }
+
+    // fprintf(stdout, "\n");
     return positions;
 }
 
@@ -150,7 +168,7 @@ vector<int> getAllOpen(const string& chunkBuffer, const int initialPos) {
 }
 
 void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& opens) {
-    int initialPos = fs.tellg();
+    int initialPos = (int)fs.tellg() - chunkBuff.size();
     // copy until next new line
     for (;chunkBuff[chunkBuff.length() - 1] != ((string::value_type)'\n');) {
         int c = fs.get();
@@ -158,27 +176,100 @@ void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& 
             break;
         }
         chunkBuff.append(1, (string::value_type) c);
+        //initialPos++;
     }
-
-    auto foundLinks = getAllLinks(chunkBuff, initialPos);
-    auto foundOpens = getAllOpen(chunkBuff, initialPos);
+    auto foundOpens = getAllOpen(chunkBuff, initialPos);// - chunkBuff.size());
+    auto foundLinks = getAllLinks(chunkBuff, initialPos);// - chunkBuff.size());
 
     links.swap(foundLinks);
     opens.swap(foundOpens);
 
-    fs.seekg(initialPos, fstream::beg);
+    fs.seekg(initialPos + chunkBuff.size(), fstream::beg);
 }
 
-void calcStep1RTP(const vector<int>& links, const vector<int>& opens) {
-
+vector<int> mergeLinks(const vector<int>& links) {
+    vector<int> mergedLinks;
+    for (auto i = links.cbegin(); i != links.cend(); ++i) {
+        mergedLinks.push_back(*i++);
+    }
+    return mergedLinks;
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens) {
+vector<int> mergeOpens(const vector<int>& opens) {
+    vector<int> mergedOpens;
+    for (auto i = opens.cbegin(); i != opens.cend(); ++i) {
+        mergedOpens.push_back(*i++);
+    }
+    return mergedOpens;
+}
 
-    // cout << "There are " << links.size() << " links" << endl;
-    // cout << "There are " << opens.size() << " opens" << endl;
+void getALogsBetween(vector<ALog>& alogs, const int startposition, const int endposition, ifstream& fs) {
+    // include additional 10 A entries after link to be sure work is completed
 
+    const int initialPosition = fs.tellg();
+    string line;
+    ALog alog;
+    fs.seekg(startposition);
+    for (fstream::pos_type position = startposition; position < endposition; position = fs.tellg()) {
+        getline(fs, line);
 
+        if (getALog(alog, line)) {
+            alogs.push_back(alog);
+        }
+    }
+
+    // include additional 10 alogs after link
+    for (int alogsAdded = 0; alogsAdded < 10; alogsAdded++) {
+        getline(fs, line);
+        if (getALog(alog, line)) {
+            alogs.push_back(alog);
+        }
+    }
+
+    fs.seekg(initialPosition);
+}
+
+void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
+
+    cout << "There are " << links.size() << " session links." << endl;
+    cout << "There are " << opens.size() << " session opens." << endl;
+
+    // for (int i = 0; i < opens.size(); ++i) {
+    //     cout << opens[i] << endl;
+    // }
+    // string openline;
+    // int checkpos = opens[0];
+
+    // int ip = fs.tellg();
+
+    // fs.seekg(checkpos);
+
+    // getline(fs, openline);
+
+    // fprintf(stdout, "\n String at pos %d : %s\n", opens[0], openline.c_str());
+
+    // fs.seekg(ip);
+
+    // calcStep1RTP(links, opens, fs);
+    // calcStep2RTP(links, opens, fs);
+
+    vector<int> beforeOpenLinks;
+    vector<ALog> alogs;
+    // TODO order by log time?
+    // Positions should be ordered
+    for (auto openposition = opens.cbegin(); openposition != opens.cend(); ++openposition) {
+        // move to associated link
+        auto linkposition = links.cbegin();
+        for (; linkposition != links.end() && (*linkposition) <= (*openposition); ++linkposition);
+        // include additional 10 lines in the current call...
+        if (*openposition < *linkposition) {
+            fprintf(stdout, "Get alogs between %d %d\n", *openposition, *linkposition);
+            getALogsBetween(alogs, *openposition, *linkposition, fs);
+            // calculate averages...
+        }
+    }
+
+    cout << "There are : " << alogs.size() << " A entries." << endl;
 }
 
 void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int chunkSize) {
@@ -203,17 +294,19 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
 
             findAllB(chunkBuffer, fs, chunkLinks, chunkOpens);
             if (chunkLinks.size() > 0) {
-                allLinks.insert(allLinks.begin(), chunkLinks.begin(), chunkLinks.end());
+                allLinks.insert(allLinks.end(), chunkLinks.begin(), chunkLinks.end());
             }
 
             if (chunkOpens.size() > 0) {
-                allOpens.insert(allOpens.begin(), chunkOpens.begin(), chunkOpens.end());
+                allOpens.insert(allOpens.end(), chunkOpens.begin(), chunkOpens.end());
             }
 
             fprintf(stdout, "\r %f%% done... %d %d", ((double)pos / (double)lf.numberOfBytes) * 100.0f, pos, lf.numberOfBytes);
             fflush(stdout);
 
         }
+
+        fprintf(stdout, "\n");
 
         // remaining
 
@@ -261,7 +354,13 @@ void preprocess(LogFile& lf, int chunkSize) {
             allOpens.insert(allOpens.end(), std::make_move_iterator(threadOpens[i].begin()), std::make_move_iterator(threadOpens[i].end()));
         }
 
-        calcRTP(allLinks, allOpens);
+        std::sort(allLinks.begin(), allLinks.end());
+        std::sort(allOpens.begin(), allOpens.end());
+
+        auto mLinks = mergeLinks(allLinks);
+        auto mOpens = mergeOpens(allOpens);
+
+        calcRTP(mLinks, mOpens, ilf);
     }
     catch(const exception& e)
     {
