@@ -40,11 +40,15 @@ RTPControlMessage getControlMessage(const char* rtpControlMessage) {
 }
 
 struct CallLog {
-    int             position;
+    int             openPosition;
+    int             linkPosition;
     int             tid; // ?
     int             cycleAvg;
+    int             AEntryCount;
     CallLog():
-        position(-1),
+        openPosition(-1),
+        linkPosition(-1),
+        AEntryCount(0),
         tid(-1),
         cycleAvg(0) {}
 };
@@ -220,18 +224,13 @@ void getALogsBetween(vector<ALog>& alogs, const int startposition, const int end
     fs.seekg(startposition);
     for (fstream::pos_type position = startposition; position < endposition; position = fs.tellg()) {
         getline(fs, line);
-
+        // fprintf(stdout, "%d \n", position);
         if (getALog(alog, line)) {
             alogs.push_back(alog);
         }
     }
 
     fs.seekg(initialPosition);
-}
-
-// endposition is actually RTPMSG_LINK position
-int getStartPositionStep1(const int endposition, ifstream& fs) {
-    return getEndPositionStep2(endposition, fs);
 }
 
 // This gets the final position for Step 2
@@ -244,7 +243,7 @@ int getEndPositionStep2(const int endposition, ifstream& fs) {
     fs.seekg(endposition);
     int position = endposition;
     // include additional 10 alogs after link
-    for (int alogsAdded = 0; alogsAdded < 10 || !fs.eof();) {
+    for (int alogsAdded = 0; alogsAdded < 10 && !fs.eof();) {
         getline(fs, line);
         if (isAlog(line)) {
             alogsAdded++;
@@ -260,11 +259,21 @@ int getEndPositionStep2(const int endposition, ifstream& fs) {
     return position;
 }
 
+// endposition is actually RTPMSG_LINK position
+int getStartPositionStep1(const int endposition, ifstream& fs) {
+    return getEndPositionStep2(endposition, fs);
+}
+
+int getStartPositionStep3(const int endposition, ifstream& fs) {
+    // position after RTPMSG_LINK
+    return getEndPositionStep2(endposition, fs);
+}
+
 void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
     cout << "calculate RTP..." << endl;
     cout << "There are " << links.size() << " session links." << endl;
     cout << "There are " << opens.size() << " session opens." << endl;
-    vector<CallLog> callLogs;
+    vector<CallLog> callLogsStep2;
     CallLog callLog;
     // Calculate step 2
     vector<int> beforeOpenLinks;
@@ -284,17 +293,20 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
             auto endposition = getEndPositionStep2(*linkposition, fs);
             getALogsBetween(alogs, *openposition, endposition, fs);
             // Calculate step 2
-            callLog.position = *openposition;
+            callLog.openPosition = *openposition;
+            callLog.linkPosition = *linkposition;
             for (auto alog = alogs.cbegin(); alog != alogs.cend(); ++alog) {
                 callLog.cycleAvg += alog->cycleWork;
             }
+            callLog.AEntryCount = alogs.size();
             callLog.cycleAvg = callLog.cycleAvg / alogs.size();
-            callLogs.push_back(callLog);
+            callLogsStep2.push_back(callLog);
+            callLog.cycleAvg = 0;
             alogs.clear();
         }
     }
 
-    cout << "There are " << callLogs.size() << " calls" << endl;
+    cout << "There are " << callLogsStep2.size() << " calls" << endl;
 
     // Step 1
     callLog.cycleAvg = 0;
@@ -329,13 +341,51 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
             callLog.cycleAvg += alog->cycleWork;
         }
 
+        callLog.cycleAvg = callLog.cycleAvg / alogsFromStart.size();
+
         cout << "Average cycle work start before RTPMSG_OPEN_SESSION: " << callLog.cycleAvg << endl;
     }
 
     // cout << "There are : " << alogs.size() << " A entries." << endl;
 
-    // Calculate step 3
+    // step 3 && step 1
     // Get control message time...
+    // Use cycles after 10 A entries
+    // TODO check if step 1
+    vector<CallLog> callLogsStep3;
+    vector<ALog> step3ALogs;
+    for (auto linkposition = links.cbegin(); linkposition != links.cend(); linkposition++) {
+        auto openEndPosition = opens.cbegin();
+        for (; openEndPosition != opens.cend() && (*linkposition >= *openEndPosition); openEndPosition++);
+        const int linkStartPosition = getStartPositionStep3(*linkposition, fs);
+        getALogsBetween(step3ALogs, linkStartPosition, *openEndPosition, fs);
+        callLog.linkPosition = *linkposition;
+
+        for (auto alog = step3ALogs.cbegin(); alog != step3ALogs.cend(); ++alog) {
+            callLog.cycleAvg +=alog->cycleWork;
+        }
+
+        callLog.cycleAvg = callLog.cycleAvg / step3ALogs.size();
+        callLogsStep3.push_back(callLog);
+        callLog.cycleAvg = 0;
+        // 
+        step3ALogs.clear();
+    }
+
+    cout << step3ALogs.size() << " step 3 A entries " << endl;
+
+    // step 4 && step 5
+    for (auto clog = callLogsStep3.cbegin(); clog != callLogsStep3.cend(); ++clog) {
+        for (auto clog2 = callLogsStep2.cbegin(); clog2 != callLogsStep2.cend(); clog2++) {
+            if (clog->linkPosition == clog2->linkPosition) {
+                // 
+                int step4total = clog->cycleAvg * clog->AEntryCount;
+                int controlMsgTime = clog2->cycleAvg - step4total;
+                fprintf(stdout, "%d\n", controlMsgTime);
+            }
+        }
+    }
+    // TODO write data to csv
 }
 
 void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int chunkSize) {
