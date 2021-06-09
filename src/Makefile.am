@@ -5,6 +5,7 @@ ccmsloggenerate_SOURCES = generate.cpp
 AM_CPPFLAGS = -I../rapidcsv -std=c++11 -I../build/
 
 all-local:
+	@rm -rf ./build
 	@echo 'Copy output files'
 	@mkdir -p ../bin/
-	@cp ../src/ccmslogparser ../bin/ccmslogparser
+	@cp -f ../src/ccmslogparser ../bin/ccmslogparser
