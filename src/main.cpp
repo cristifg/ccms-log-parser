@@ -39,27 +39,6 @@ RTPControlMessage getControlMessage(const char* rtpControlMessage) {
     return UNKNOWN;
 }
 
-struct CallLog {
-    int             openPosition;
-    int             linkPosition;
-    int             tid; // ?
-    int             cycleAvg;
-    int             AEntryCount;
-    CallLog():
-        openPosition(-1),
-        linkPosition(-1),
-        AEntryCount(0),
-        tid(-1),
-        cycleAvg(0) {}
-};
-
-struct LogFile {
-    int             numberOfBytes;
-    int             numberOfThreads;
-    string          filePath;
-    atomic<int>     parsingPosition;
-};
-
 struct ALog {
     int cycleStart;
     int cycleWork;
@@ -67,6 +46,35 @@ struct ALog {
     int cycleSlept;
     int cycleOverwork;
     int accumOverwork;
+};
+
+enum class CallLogType {
+    CallSetup,
+    CallMaintenance,
+    Unknown
+};
+
+struct CallLog {
+    CallLogType             callLogType;
+    int                     startPosition;
+    int                     endPosition;
+    int                     tid; // ?
+    // int                     cycleAvg;
+    // int                     AEntryCount;
+    vector<ALog>            ALogs;
+
+    CallLog():
+        callLogType(CallLogType::Unknown),
+        startPosition(-1),
+        endPosition(-1),
+        tid(-1) {}
+};
+
+struct LogFile {
+    int             numberOfBytes;
+    int             numberOfThreads;
+    string          filePath;
+    atomic<int>     parsingPosition;
 };
 
 struct BLog {
@@ -116,12 +124,6 @@ bool getBLogs(vector<BLog>& blogs, const string& log) {
     auto start = log.begin();
     for (;regex_search(start, log.end(), matching, BLogRegEx);) {
         for (auto i = matching.begin(); i != matching.end();) {
-            // cout << (++i)->str() << endl;
-            // cout << (++i)->str() << endl;
-            // cout << (++i)->str() << endl;
-            // blogs.emplace_back((++i)->str(),
-            //                    stoi((++i)->str()),
-            //                    getControlMessage((++i)->str().c_str()));
             ++i;
         }
         cout << endl;
@@ -151,23 +153,6 @@ vector<int> getAllPos(const string& chunkBuffer, const regex& reg, const int ini
         positions.push_back(matching.position() + initialPos);
         // fprintf(stdout, "Found %d matches in chunk size %d and initialpos %d at pos %d %s\n", matching.size(), chunkBuffer.size(), initialPos, pos, matching[0].str().c_str());
     }
-    // auto start = chunkBuffer.cbegin();
-    // for (;regex_search(start, chunkBuffer.cend(), matching, reg);) {
-    //     positions.push_back(matching.position() + initialPos);
-    //     // for (int i = 0; i < matching.size(); ++i) {
-    //     //     // if (initialPos == 0) {
-    //             int pos = matching.position(0) + initialPos;
-    //     //         // fprintf(stdout, "MATCH : %s pos : %d\n", matching[i].str().c_str(), pos);
-    //     //     // }
-    //         fprintf(stdout, "Found %d matches in chunk size %d and initialpos %d at pos %d %s\n", matching.size(), chunkBuffer.size(), initialPos, pos, matching[0].str().c_str());
-    //     //     positions.push_back(matching.position(i + 1) + initialPos);
-    //     //     // fprintf(stdout, "pos : %d \n", pos);
-    //     // }
-    //     // start = matching[0].second;
-    //     start = matching[0].second;
-    // }
-
-    // fprintf(stdout, "\n");
     return positions;
 }
 
@@ -269,17 +254,38 @@ int getStartPositionStep3(const int endposition, ifstream& fs) {
     return getEndPositionStep2(endposition, fs);
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
+double getSumCycleWork(const vector<ALog>& alogs) {
+    double sum = 0.0f;
+
+    for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
+        sum += alog->cycleWork;
+    }
+
+    return sum;
+}
+
+double getAverageCycleWork(const vector<ALog>& alogs) {
+    double avg = 0.0f;
+
+    for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
+        avg += alog->cycleWork;
+    }
+
+    avg /= alogs.size();
+
+    return avg;
+}
+
+void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc) {
     cout << "calculate RTP..." << endl;
     cout << "There are " << links.size() << " session links." << endl;
     cout << "There are " << opens.size() << " session opens." << endl;
-    vector<CallLog> callLogsStep2;
     CallLog callLog;
     // Calculate step 2
-    vector<int> beforeOpenLinks;
+    // Call setup
     vector<ALog> alogs;
-    callLog.cycleAvg = 0;
 
+    vector<CallLog> callSetupLogs;
     // TODO order by log time?
     // Positions should be ordered
     for (auto openposition = opens.cbegin(); openposition != opens.cend(); ++openposition) {
@@ -293,99 +299,79 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs) {
             auto endposition = getEndPositionStep2(*linkposition, fs);
             getALogsBetween(alogs, *openposition, endposition, fs);
             // Calculate step 2
-            callLog.openPosition = *openposition;
-            callLog.linkPosition = *linkposition;
-            for (auto alog = alogs.cbegin(); alog != alogs.cend(); ++alog) {
-                callLog.cycleAvg += alog->cycleWork;
-            }
-            callLog.AEntryCount = alogs.size();
-            callLog.cycleAvg = callLog.cycleAvg / alogs.size();
-            callLogsStep2.push_back(callLog);
-            callLog.cycleAvg = 0;
+            callLog.startPosition = *openposition;
+            callLog.endPosition = *linkposition;
+            callLog.callLogType = CallLogType::CallSetup;
+
+            callLog.ALogs = move(alogs);
+            callSetupLogs.push_back(callLog);
             alogs.clear();
         }
     }
 
-    cout << "There are " << callLogsStep2.size() << " calls" << endl;
+    // cout << "There are " << callSetupLogs.size() << " call setup logs" << endl;
 
-    // Step 1
-    callLog.cycleAvg = 0;
-    if (*links.cbegin() < *opens.cbegin()) {
-        // with link precedings
-        cout << "There are link precedings..." << endl;
-        vector<ALog> alogsPreceding;
-        // for (auto link1 = beforeOpenLinks.cbegin(); link1 != beforeOpenLinks.cend() && (*link1 < *opens.cbegin()) ; ++link1) {
-        //     cout << "Get alog between " << *link1 << " " << *opens.cbegin() << endl;
-        int startPosition = getStartPositionStep1(*links.cbegin(), fs);
-        getALogsBetween(alogsPreceding, startPosition, *opens.cbegin(), fs);
-        // }
-
-        // Get average without 10 additional
-        // TODO
-        for (auto alog = alogsPreceding.cbegin(); alog != alogsPreceding.cend(); ++alog) {
-
-            // cout << "Add " << alog->cycleWork << endl;
-            callLog.cycleAvg += alog->cycleWork;
-        }
-
-        callLog.cycleAvg = callLog.cycleAvg / alogsPreceding.size();
-
-        cout << "Average cycle work start : " << callLog.cycleAvg << endl;
-    } else {
+    alogs.clear();
+    vector<CallLog> callMaintenanceLogs;
+    if (*links.cbegin() > *opens.cbegin()) {
         // no link precedings
         // Get from the start of the log until open session
-        vector<ALog> alogsFromStart;
-        getALogsBetween(alogsFromStart, 0, *opens.cbegin(), fs);
-        for (auto alog = alogsFromStart.cbegin(); alog != alogsFromStart.cend(); ++alog) {
-            // cout << "Add " << alog->cycleWork << endl;
-            callLog.cycleAvg += alog->cycleWork;
-        }
+        getALogsBetween(alogs, 0, *opens.cbegin(), fs);
 
-        callLog.cycleAvg = callLog.cycleAvg / alogsFromStart.size();
+        callLog.startPosition = 0;
+        callLog.endPosition = *opens.cbegin();
+        callLog.ALogs = move(alogs);
+        callLog.callLogType = CallLogType::CallMaintenance;
 
-        cout << "Average cycle work start before RTPMSG_OPEN_SESSION: " << callLog.cycleAvg << endl;
+        callMaintenanceLogs.push_back(callLog);
+        alogs.clear();
     }
 
-    // cout << "There are : " << alogs.size() << " A entries." << endl;
-
-    // step 3 && step 1
-    // Get control message time...
-    // Use cycles after 10 A entries
-    // TODO check if step 1
-    vector<CallLog> callLogsStep3;
-    vector<ALog> step3ALogs;
+    alogs.clear();
     for (auto linkposition = links.cbegin(); linkposition != links.cend(); linkposition++) {
         auto openEndPosition = opens.cbegin();
         for (; openEndPosition != opens.cend() && (*linkposition >= *openEndPosition); openEndPosition++);
         const int linkStartPosition = getStartPositionStep3(*linkposition, fs);
-        getALogsBetween(step3ALogs, linkStartPosition, *openEndPosition, fs);
-        callLog.linkPosition = *linkposition;
+        getALogsBetween(alogs, linkStartPosition, *openEndPosition, fs);
+        // callLog.linkPosition = *linkposition;
+        callLog.startPosition = linkStartPosition;
+        callLog.endPosition = *openEndPosition;
+        callLog.ALogs = move(alogs);
+        callLog.callLogType = CallLogType::CallMaintenance;
 
-        for (auto alog = step3ALogs.cbegin(); alog != step3ALogs.cend(); ++alog) {
-            callLog.cycleAvg +=alog->cycleWork;
-        }
-
-        callLog.cycleAvg = callLog.cycleAvg / step3ALogs.size();
-        callLogsStep3.push_back(callLog);
-        callLog.cycleAvg = 0;
-        // 
-        step3ALogs.clear();
+        callMaintenanceLogs.push_back(callLog);
+        alogs.clear();
     }
 
-    cout << step3ALogs.size() << " step 3 A entries " << endl;
+    // cout << callMaintenanceLogs.size() << " Call maintenance A entries " << endl;
 
-    // step 4 && step 5
-    for (auto clog = callLogsStep3.cbegin(); clog != callLogsStep3.cend(); ++clog) {
-        for (auto clog2 = callLogsStep2.cbegin(); clog2 != callLogsStep2.cend(); clog2++) {
-            if (clog->linkPosition == clog2->linkPosition) {
-                // 
-                int step4total = clog->cycleAvg * clog->AEntryCount;
-                int controlMsgTime = clog2->cycleAvg - step4total;
-                fprintf(stdout, "%d\n", controlMsgTime);
-            }
+    // Setup csv
+
+    int nrOfCalls = 0;
+
+    for (auto cm = callMaintenanceLogs.cbegin(); cm != callMaintenanceLogs.cend(); cm++) {
+
+        double callMaintenanceAverage = 0.0f;
+        double callSetupAndMaintenanceTotal = 0.0f;
+        double callMaitenanceTotal = 0.0f;
+        double callSetupTotal = 0.0f;
+
+        auto cs = callSetupLogs.cbegin();
+        for (; cs != callSetupLogs.cend() && cs->startPosition != cm->endPosition; cs++);
+
+        if (cs != callSetupLogs.cend()) {
+            // fprintf(stdout, "cs->startPosition %d cm->endPosition %d\n", cs->startPosition, cm->endPosition);
+            callMaintenanceAverage += getAverageCycleWork(cm->ALogs);
+            callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
+            callMaitenanceTotal = callMaintenanceAverage * cs->ALogs.size();
+            callSetupTotal = callSetupAndMaintenanceTotal - callMaitenanceTotal;
+            nrOfCalls++;
+
+            doc.SetRow<double>(nrOfCalls-1, vector<double>({ (double) nrOfCalls, callMaintenanceAverage, callSetupTotal}) );
+
+            // fprintf(stdout, "#calls %d avgMaintLoop %f TotalSetupTime %f\n", nrOfCalls, callMaintenanceAverage, callSetupTotal);
         }
     }
-    // TODO write data to csv
 }
 
 void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int chunkSize) {
@@ -426,9 +412,6 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
 
         // remaining
 
-        // Check all links
-        // calcRTP(allLinks, allOpens);
-
         fs.close();
     }
     catch(const exception& e)
@@ -437,7 +420,7 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
     }
 }
 
-void preprocess(LogFile& lf, int chunkSize) {
+void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc) {
     try
     {
         ifstream ilf(lf.filePath, fstream::in);
@@ -476,7 +459,7 @@ void preprocess(LogFile& lf, int chunkSize) {
         auto mLinks = mergeLinks(allLinks);
         auto mOpens = mergeOpens(allOpens);
 
-        calcRTP(mLinks, mOpens, ilf);
+        calcRTP(mLinks, mOpens, ilf, doc);
     }
     catch(const exception& e)
     {
@@ -486,8 +469,8 @@ void preprocess(LogFile& lf, int chunkSize) {
 
 int main(int argc, char** argv) {
 
-    if (argc < 4) {
-        cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes.";
+    if (argc < 5) {
+        cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes and save path\nExample : ./src/ccmslogparser ./ccms_MANUAL_2021-05-06_23-02-11-264_1.log 4 1048576 ./savefile.csv";
         return -1;
     }
 
@@ -496,12 +479,18 @@ int main(int argc, char** argv) {
     lf.filePath = argv[1];
     lf.numberOfThreads = stoi(argv[2]);
     int chunkSize = stoi(argv[3]);
+    string savePath = argv[4];
 
-    preprocess(lf, chunkSize);
+    rapidcsv::Document doc("", rapidcsv::LabelParams(), rapidcsv::SeparatorParams(','));
+    doc.SetColumnName(0, "#Calls");
+    doc.SetColumnName(1, "AverageMaintenanceTimePerLoop");
+    doc.SetColumnName(2, "TotalSetupTime");
 
-    cout << endl << "Parsing done." << endl;
+    process(lf, chunkSize, doc);
 
-    return 0;
-    // Write to csv
+    doc.Save(savePath);
+
+    cout << endl << "Done." << endl;
+
     return 0;
 }
