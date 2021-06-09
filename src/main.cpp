@@ -9,6 +9,7 @@
 #include <cctype>
 #include <chrono>
 #include <string.h>
+#include <config.h>
 #include <unistd.h>
 #include "../rapidcsv/rapidcsv.h"
 
