@@ -260,6 +260,7 @@ double getSumCycleWork(const vector<ALog>& alogs) {
 
     for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
         sum += alog->cycleWork;
+        // fprintf(stdout, "sum %f\n", sum);
     }
 
     return sum;
@@ -301,7 +302,7 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
             getALogsBetween(alogs, *openposition, endposition, fs);
             // Calculate step 2
             callLog.startPosition = *openposition;
-            callLog.endPosition = *linkposition;
+            callLog.endPosition = endposition;
             callLog.callLogType = CallLogType::CallSetup;
 
             callLog.ALogs = move(alogs);
@@ -344,34 +345,29 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
         alogs.clear();
     }
 
-    // cout << callMaintenanceLogs.size() << " Call maintenance A entries " << endl;
-
     // Setup csv
 
     int nrOfCalls = 0;
 
-    for (auto cm = callMaintenanceLogs.cbegin(); cm != callMaintenanceLogs.cend(); cm++) {
+    for (auto cs = callSetupLogs.cbegin(); cs != callSetupLogs.cend(); cs++) {
 
-        double callMaintenanceAverage = 0.0f;
+        double callMaintenanceAverageLoop = 0.0f;
         double callSetupAndMaintenanceTotal = 0.0f;
-        double callMaitenanceTotal = 0.0f;
-        double callSetupTotal = 0.0f;
+        double callMaintenanceTotalTime = 0.0f;
+        double callSetupTime = 0.0f;
 
-        auto cs = callSetupLogs.cbegin();
-        for (; cs != callSetupLogs.cend() && cs->startPosition != cm->endPosition; cs++);
+        auto cm = callMaintenanceLogs.cbegin();
+        for (; cm != callMaintenanceLogs.end() && cm->endPosition < cs->startPosition; cm++);
 
-        if (cs != callSetupLogs.cend()) {
-            // fprintf(stdout, "cs->startPosition %d cm->endPosition %d\n", cs->startPosition, cm->endPosition);
-            callMaintenanceAverage += getAverageCycleWork(cm->ALogs);
-            callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
-            callMaitenanceTotal = callMaintenanceAverage * cs->ALogs.size();
-            callSetupTotal = callSetupAndMaintenanceTotal - callMaitenanceTotal;
-            nrOfCalls++;
-
-            doc.SetRow<double>(nrOfCalls-1, vector<double>({ (double) nrOfCalls, callMaintenanceAverage, callSetupTotal}) );
-
-            // fprintf(stdout, "#calls %d avgMaintLoop %f TotalSetupTime %f\n", nrOfCalls, callMaintenanceAverage, callSetupTotal);
-        }
+        callMaintenanceAverageLoop += getAverageCycleWork(cm->ALogs);
+        callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
+        callSetupAndMaintenanceTotal += getSumCycleWork(cm->ALogs);
+        callMaintenanceTotalTime = callMaintenanceAverageLoop * cs->ALogs.size();
+        callSetupTime = callSetupAndMaintenanceTotal - callMaintenanceTotalTime;
+        // fprintf(stdout, "Average between %d %d : %f\n", cm->startPosition, cm->endPosition, callMaintenanceAverageLoop);
+        fprintf(stdout, "#calls %d avgMaintLoop %fusec TotalSetupTime %fusec\n", nrOfCalls, callMaintenanceAverageLoop, callSetupTime);
+        // fprintf(stdout, "#calls %d avg %f \n", nrOfCalls, callMaintenanceAverageLoop);
+        nrOfCalls++;
     }
 }
 
