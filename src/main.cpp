@@ -190,7 +190,7 @@ void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& 
 vector<int> mergeLinks(const vector<int>& links) {
     vector<int> mergedLinks;
     for (auto i = links.cbegin(); i != links.cend(); ++i) {
-        mergedLinks.push_back(*i++);
+        mergedLinks.push_back(*(++i));
     }
     return mergedLinks;
 }
@@ -268,9 +268,16 @@ double getSumCycleWork(const vector<ALog>& alogs) {
 
 double getAverageCycleWork(const vector<ALog>& alogs) {
     double avg = 0.0f;
+    // int n = 1;
+    // for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
+    //     avg = avg* (n - 1)/ n + alog->cycleWork / n; //+= alog->cycleWork;
+    //     n++;
+    // }
 
+    // int n = 1;
     for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
         avg += alog->cycleWork;
+        // n++;
     }
 
     avg /= alogs.size();
@@ -361,11 +368,20 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
 
         callMaintenanceAverageLoop += getAverageCycleWork(cm->ALogs);
         callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
-        callSetupAndMaintenanceTotal += getSumCycleWork(cm->ALogs);
+        fprintf(stdout, "callSetupAndMaintenanceTotal : %f\n", callSetupAndMaintenanceTotal);
+        // callSetupAndMaintenanceTotal += getSumCycleWork(cm->ALogs);
+        // fprintf(stdout, "callMaintenanceAverageLoop : %f\n", callMaintenanceAverageLoop);
         callMaintenanceTotalTime = callMaintenanceAverageLoop * cs->ALogs.size();
+        fprintf(stdout, "callMaintenanceTotalTime : %f\n", callMaintenanceTotalTime);
         callSetupTime = callSetupAndMaintenanceTotal - callMaintenanceTotalTime;
+
+        // if (callSetupTime < 0) {
+        //     fprintf(stdout, "\n\ncs->start: %d cs->end: %d cm->start: %d cm->end: %d\n\n", cs->startPosition, cs->endPosition, cm->startPosition, cm->endPosition);
+        // }
+        doc.SetRow<double>(nrOfCalls, vector<double>({ (double) nrOfCalls, callMaintenanceAverage, callSetupTotal}) );
+        // fprintf(stdout, "Total maintenance time %f\n", callSetupAndMaintenanceTotal);
         // fprintf(stdout, "Average between %d %d : %f\n", cm->startPosition, cm->endPosition, callMaintenanceAverageLoop);
-        fprintf(stdout, "#calls %d avgMaintLoop %fusec TotalSetupTime %fusec\n", nrOfCalls, callMaintenanceAverageLoop, callSetupTime);
+        fprintf(stdout, "#calls %d avgMaintLoop %dusec TotalSetupTime %dusec\n", nrOfCalls, (int)callMaintenanceAverageLoop, (int)callSetupTime);
         // fprintf(stdout, "#calls %d avg %f \n", nrOfCalls, callMaintenanceAverageLoop);
         nrOfCalls++;
     }
@@ -450,12 +466,38 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc) {
             allOpens.insert(allOpens.end(), std::make_move_iterator(threadOpens[i].begin()), std::make_move_iterator(threadOpens[i].end()));
         }
 
+        // for (auto l : allLinks) {
+        //     fprintf(stdout, "link %d\n", l);
+        // }
+
         std::sort(allLinks.begin(), allLinks.end());
+
+        // fprintf(stdout, "\n");
+
+        // for (auto l : allLinks) {
+        //     fprintf(stdout, "link %d\n", l);
+        // }
+
+        // for (auto l : allOpens) {
+        //     fprintf(stdout, "open %d\n", l);
+        // }
+
         std::sort(allOpens.begin(), allOpens.end());
+        // fprintf(stdout, "\n");
+        // for (auto l : allOpens) {
+        //     fprintf(stdout, "opens %d\n", l);
+        // }
 
         auto mLinks = mergeLinks(allLinks);
-        auto mOpens = mergeOpens(allOpens);
 
+        // for (auto ml : mLinks) {
+        //     fprintf(stdout, "ml %d\n", ml);
+        // }
+
+        auto mOpens = mergeOpens(allOpens);
+        // for (auto mo : mOpens) {
+        //     fprintf(stdout, "mo %d\n", mo);
+        // }
         calcRTP(mLinks, mOpens, ilf, doc);
     }
     catch(const exception& e)
