@@ -10,8 +10,14 @@
 #include <chrono>
 #include <string.h>
 #include <config.h>
+#include <cstdlib>
 #include <unistd.h>
 #include "../rapidcsv/rapidcsv.h"
+#ifdef _WIN32
+    #include "getopt.h"
+#else
+    #include <unistd.h>
+#endif
 
 #define PARSING_CHUNK_SIZE 1024 * 1024
 #define RTPMSG_LINK_SEARCH "Msg:RTPMSG_LINK"
@@ -285,7 +291,7 @@ double getAverageCycleWork(const vector<ALog>& alogs) {
     return avg;
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc) {
+void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc, bool enableDebug) {
     cout << "calculate RTP..." << endl;
     cout << "There are " << links.size() << " session links." << endl;
     cout << "There are " << opens.size() << " session opens." << endl;
@@ -368,20 +374,27 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
 
         callMaintenanceAverageLoop += getAverageCycleWork(cm->ALogs);
         callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
-        fprintf(stdout, "callSetupAndMaintenanceTotal : %f\n", callSetupAndMaintenanceTotal);
+        if (enableDebug) {
+            fprintf(stdout, "callSetupAndMaintenanceTotal : %d\n", (int)callSetupAndMaintenanceTotal);
+        }
         // callSetupAndMaintenanceTotal += getSumCycleWork(cm->ALogs);
         // fprintf(stdout, "callMaintenanceAverageLoop : %f\n", callMaintenanceAverageLoop);
-        callMaintenanceTotalTime = callMaintenanceAverageLoop * cs->ALogs.size();
-        fprintf(stdout, "callMaintenanceTotalTime : %f\n", callMaintenanceTotalTime);
+        callMaintenanceTotalTime = ((int)callMaintenanceAverageLoop) * cs->ALogs.size();
+        if (enableDebug) {
+            fprintf(stdout, "callMaintenanceTotalTime : %d\n", (int)callMaintenanceTotalTime);
+        }
         callSetupTime = callSetupAndMaintenanceTotal - callMaintenanceTotalTime;
 
-        // if (callSetupTime < 0) {
-        //     fprintf(stdout, "\n\ncs->start: %d cs->end: %d cm->start: %d cm->end: %d\n\n", cs->startPosition, cs->endPosition, cm->startPosition, cm->endPosition);
-        // }
-        doc.SetRow<double>(nrOfCalls, vector<double>({ (double) nrOfCalls, callMaintenanceAverage, callSetupTotal}) );
+        if (enableDebug) {
+            fprintf(stdout, "cs->start: %d cs->end: %d cm->start: %d cm->end: %d\n", cs->startPosition, cs->endPosition, cm->startPosition, cm->endPosition);
+        }
+        doc.SetRow<int>(nrOfCalls, vector<int>({ nrOfCalls, (int)callMaintenanceAverageLoop, (int)cs->ALogs.size() , (int)callSetupTime}) );
         // fprintf(stdout, "Total maintenance time %f\n", callSetupAndMaintenanceTotal);
         // fprintf(stdout, "Average between %d %d : %f\n", cm->startPosition, cm->endPosition, callMaintenanceAverageLoop);
-        fprintf(stdout, "#calls %d avgMaintLoop %dusec TotalSetupTime %dusec\n", nrOfCalls, (int)callMaintenanceAverageLoop, (int)callSetupTime);
+        if (enableDebug) {
+            fprintf(stdout, "#calls %d avgMaintLoop %dusec NumSetupLoops %d TotalSetupTime %dusec\n", nrOfCalls, (int)callMaintenanceAverageLoop, (int) cs->ALogs.size(), (int)callSetupTime);
+            fprintf(stdout, "\n");
+        }
         // fprintf(stdout, "#calls %d avg %f \n", nrOfCalls, callMaintenanceAverageLoop);
         nrOfCalls++;
     }
@@ -433,7 +446,7 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
     }
 }
 
-void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc) {
+void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDebug) {
     try
     {
         ifstream ilf(lf.filePath, fstream::in);
@@ -498,7 +511,7 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc) {
         // for (auto mo : mOpens) {
         //     fprintf(stdout, "mo %d\n", mo);
         // }
-        calcRTP(mLinks, mOpens, ilf, doc);
+        calcRTP(mLinks, mOpens, ilf, doc, enableDebug);
     }
     catch(const exception& e)
     {
@@ -508,24 +521,61 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc) {
 
 int main(int argc, char** argv) {
 
-    if (argc < 5) {
-        cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes and save path\nExample : ./src/ccmslogparser ./ccms_MANUAL_2021-05-06_23-02-11-264_1.log 4 1048576 ./savefile.csv";
-        return -1;
+    int c;
+    int chunkSize;
+    string savePath;
+    bool enableDebug = false;
+    LogFile lf;
+    while(1) {
+        c = getopt(argc, argv, "t:c:o:d");
+        if (c == -1)
+            break;
+
+        switch(c) {
+            case 't': {
+                lf.numberOfThreads = stoi(optarg);
+                break;
+            }
+            case 'c': {
+                chunkSize = stoi(optarg);
+                break;
+            }
+            case 'o': {
+                savePath = optarg;
+                break;
+            }
+            case 'd': {
+                enableDebug = true;
+                break;
+            }
+        }
     }
 
-    LogFile lf;
+    if (optind != argc-1) {
+        cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes and save path\nExample : ./src/ccmslogparser ./ccms_MANUAL_2021-05-06_23-02-11-264_1.log 4 1048576 ./savefile.csv";
+        return 1;
+    }
+
+    cout << "Processing log file: " << argv[optind] << endl;
+    lf.filePath = string(argv[optind]);
+    // if (argc < 5) {
+    //     cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes and save path\nExample : ./src/ccmslogparser ./ccms_MANUAL_2021-05-06_23-02-11-264_1.log 4 1048576 ./savefile.csv";
+    //     return -1;
+    // }
+
     lf.parsingPosition = 0;
-    lf.filePath = argv[1];
-    lf.numberOfThreads = stoi(argv[2]);
-    int chunkSize = stoi(argv[3]);
-    string savePath = argv[4];
+    // lf.filePath = argv[1];
+    // lf.numberOfThreads = stoi(argv[2]);
+    // int chunkSize = stoi(argv[3]);
+    // string savePath = argv[4];
 
     rapidcsv::Document doc("", rapidcsv::LabelParams(), rapidcsv::SeparatorParams(','));
     doc.SetColumnName(0, "#Calls");
     doc.SetColumnName(1, "AverageMaintenanceTimePerLoop");
-    doc.SetColumnName(2, "TotalSetupTime");
+    doc.SetColumnName(2, "NumSetupLoops");
+    doc.SetColumnName(3, "TotalSetupTime");
 
-    process(lf, chunkSize, doc);
+    process(lf, chunkSize, doc, enableDebug);
 
     doc.Save(savePath);
 
