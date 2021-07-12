@@ -47,7 +47,8 @@ RTPControlMessage getControlMessage(const char* rtpControlMessage) {
 }
 
 struct ALog {
-    int cycleStart;
+    long long cycleStart;
+    int cycleThrctl;
     int cycleWork;
     int cycleSleep;
     int cycleSlept;
@@ -105,7 +106,7 @@ bool isBlog(string& logline) {
 
 //(?:(?: Stream Client TCP (\d+\.\d+\.\d+\.\d+\:\d+)(?:(?:.|\s)*?)TID\:(-?\d+)(?:(?:.|\s)*?)Msg\:(RTPMSG_\D+)(?:(?:.|\s))TimeUs:))
 bool getALog(ALog& alog, string& logline) {
-    static regex ALogRegEx(".*(?:cycle start time\\s+(-?\\d+) us).*(?:cycle work\\s+(-?\\d+) us).*(?:cycle sleep\\s+(-?\\d+) us).*(?:cycle slept\\s+(-?\\d+) us).*(?:cycle overwork\\s+(-?\\d+) us).*(?:accum overwork\\s+(-?\\d+) us)");
+    static regex ALogRegEx(".*(?:cycle start time\\s+(-?\\d+) us).*(?:cycle thrctl\\s+(-?\\d+)).*(?:cycle work\\s+(-?\\d+) us).*(?:cycle sleep\\s+(-?\\d+) us).*(?:cycle slept\\s+(-?\\d+) us).*(?:cycle overwork\\s+(-?\\d+) us).*(?:accum overwork\\s+(-?\\d+) us)");
     smatch matching;
     if (isAlog(logline)) {
         if (!regex_match(logline, matching, ALogRegEx)) {
@@ -113,12 +114,16 @@ bool getALog(ALog& alog, string& logline) {
         }
 
         auto matchIter = matching.begin();
-        alog.cycleStart = stoi(*++matchIter);
+        // fprintf(stdout, "1\n");
+        alog.cycleStart = stoll(*++matchIter);
+        // fprintf(stdout, "2\n");
+        alog.cycleThrctl = stoi(*++matchIter);
+        // fprintf(stdout, "3\n");
         alog.cycleWork = stoi(*++matchIter);
-        alog.cycleSleep = stoi(*++matchIter);
-        alog.cycleSlept = stoi(*++matchIter);
-        alog.cycleOverwork = stoi(*++matchIter);
-        alog.accumOverwork = stoi(*++matchIter);
+        // alog.cycleSleep = stoi(*++matchIter);
+        // alog.cycleSlept = stoi(*++matchIter);
+        // alog.cycleOverwork = stoi(*++matchIter);
+        // alog.accumOverwork = stoi(*++matchIter);
 
         return true;
     }
@@ -164,12 +169,14 @@ vector<int> getAllPos(const string& chunkBuffer, const regex& reg, const int ini
 }
 
 vector<int> getAllLinks(const string& chunkBuffer, const int initialPos) {
-    static regex linkRegEx("(?:Msg:RTPMSG_LINK\\s)");
+    // static regex linkRegEx("(?:Msg:RTPMSG_LINK\\s)");
+    static regex linkRegEx("(?:ExtAPI: Link\\s)");
     return getAllPos(chunkBuffer, linkRegEx, initialPos);
 }
 
 vector<int> getAllOpen(const string& chunkBuffer, const int initialPos) {
-    static regex openRegEx("(?:Msg:RTPMSG_OPEN_SESSION\\s)");
+    // static regex openRegEx("(?:Msg:RTPMSG_OPEN_SESSION\\s)");
+    static regex openRegEx("(?:ExtAPI: OpenSession\\s)");
     return getAllPos(chunkBuffer, openRegEx, initialPos);
 }
 
@@ -204,7 +211,7 @@ vector<int> mergeLinks(const vector<int>& links) {
 vector<int> mergeOpens(const vector<int>& opens) {
     vector<int> mergedOpens;
     for (auto i = opens.cbegin(); i != opens.cend(); ++i) {
-        mergedOpens.push_back(*i++);
+        mergedOpens.push_back(*(i++));
     }
     return mergedOpens;
 }
@@ -265,7 +272,8 @@ double getSumCycleWork(const vector<ALog>& alogs) {
     double sum = 0.0f;
 
     for (auto alog = alogs.cbegin(); alog != alogs.cend(); alog++) {
-        sum += alog->cycleWork;
+        // sum += alog->cycleWork;
+        sum += alog->cycleThrctl;
         // fprintf(stdout, "sum %f\n", sum);
     }
 
@@ -383,7 +391,7 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
         if (enableDebug) {
             fprintf(stdout, "callMaintenanceTotalTime : %d\n", (int)callMaintenanceTotalTime);
         }
-        callSetupTime = callSetupAndMaintenanceTotal - callMaintenanceTotalTime;
+        callSetupTime = callMaintenanceTotalTime - callSetupAndMaintenanceTotal;
 
         if (enableDebug) {
             fprintf(stdout, "cs->start: %d cs->end: %d cm->start: %d cm->end: %d\n", cs->startPosition, cs->endPosition, cm->startPosition, cm->endPosition);
@@ -501,13 +509,14 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         //     fprintf(stdout, "opens %d\n", l);
         // }
 
-        auto mLinks = mergeLinks(allLinks);
+        // We don't need to merge if logs use ExtAPI
+        auto mLinks = move(allLinks); //mergeLinks(allLinks);
 
         // for (auto ml : mLinks) {
         //     fprintf(stdout, "ml %d\n", ml);
         // }
 
-        auto mOpens = mergeOpens(allOpens);
+        auto mOpens = /*move(allOpens); //*/ mergeOpens(allOpens);
         // for (auto mo : mOpens) {
         //     fprintf(stdout, "mo %d\n", mo);
         // }
