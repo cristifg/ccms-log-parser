@@ -181,6 +181,7 @@ vector<int> getAllOpen(const string& chunkBuffer, const int initialPos) {
 }
 
 void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& opens) {
+    // fprintf(stdout, "findAll\n");
     int initialPos = (int)fs.tellg() - chunkBuff.size();
     // copy until next new line
     for (;chunkBuff[chunkBuff.length() - 1] != ((string::value_type)'\n');) {
@@ -198,12 +199,15 @@ void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& 
     opens.swap(foundOpens);
 
     fs.seekg(initialPos + chunkBuff.size(), fstream::beg);
+    // fprintf(stdout, "exit findAll\n");
 }
 
 vector<int> mergeLinks(const vector<int>& links) {
     vector<int> mergedLinks;
     for (auto i = links.cbegin(); i != links.cend(); ++i) {
-        mergedLinks.push_back(*(++i));
+        if (i + 1 != links.cend()) {
+            mergedLinks.push_back(*(++i));
+        }
     }
     return mergedLinks;
 }
@@ -211,7 +215,9 @@ vector<int> mergeLinks(const vector<int>& links) {
 vector<int> mergeOpens(const vector<int>& opens) {
     vector<int> mergedOpens;
     for (auto i = opens.cbegin(); i != opens.cend(); ++i) {
-        mergedOpens.push_back(*(i++));
+        if (i + 1 != opens.cend()) {
+            mergedOpens.push_back(*(i++));
+        }
     }
     return mergedOpens;
 }
@@ -374,24 +380,25 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
 
         double callMaintenanceAverageLoop = 0.0f;
         double callSetupAndMaintenanceTotal = 0.0f;
-        double callMaintenanceTotalTime = 0.0f;
+        // double callMaintenanceTotalTime = 0.0f;
         double callSetupTime = 0.0f;
 
         auto cm = callMaintenanceLogs.cbegin();
         for (; cm != callMaintenanceLogs.end() && cm->endPosition < cs->startPosition; cm++);
 
         callMaintenanceAverageLoop += getAverageCycleWork(cm->ALogs);
+        // After cycle thrctl was added we can use it to get the total setup time.
         callSetupAndMaintenanceTotal += getSumCycleWork(cs->ALogs);
         if (enableDebug) {
             fprintf(stdout, "callSetupAndMaintenanceTotal : %d\n", (int)callSetupAndMaintenanceTotal);
         }
         // callSetupAndMaintenanceTotal += getSumCycleWork(cm->ALogs);
         // fprintf(stdout, "callMaintenanceAverageLoop : %f\n", callMaintenanceAverageLoop);
-        callMaintenanceTotalTime = ((int)callMaintenanceAverageLoop) * cs->ALogs.size();
+        // callMaintenanceTotalTime = ((int)callMaintenanceAverageLoop) * cs->ALogs.size();
         if (enableDebug) {
-            fprintf(stdout, "callMaintenanceTotalTime : %d\n", (int)callMaintenanceTotalTime);
+            fprintf(stdout, "callSetupTime : %d\n", (int)callSetupAndMaintenanceTotal);
         }
-        callSetupTime = callMaintenanceTotalTime - callSetupAndMaintenanceTotal;
+        callSetupTime = callSetupAndMaintenanceTotal; //callMaintenanceTotalTime - callSetupAndMaintenanceTotal;
 
         if (enableDebug) {
             fprintf(stdout, "cs->start: %d cs->end: %d cm->start: %d cm->end: %d\n", cs->startPosition, cs->endPosition, cm->startPosition, cm->endPosition);
@@ -479,6 +486,8 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
             t.join();
         });
 
+        fprintf(stdout, "Merging results...\n");
+
         // Merge all
         vector<int> allLinks;
         vector<int> allOpens;
@@ -492,6 +501,10 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         // }
 
         std::sort(allLinks.begin(), allLinks.end());
+
+        if (enableDebug) {
+            fprintf(stdout, "%d links", allLinks.size());
+        }
 
         // fprintf(stdout, "\n");
 
@@ -511,6 +524,10 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
 
         // We don't need to merge if logs use ExtAPI
         auto mLinks = move(allLinks); //mergeLinks(allLinks);
+
+        if (enableDebug) {
+            fprintf(stdout, "%d opens", allOpens.size());
+        }
 
         // for (auto ml : mLinks) {
         //     fprintf(stdout, "ml %d\n", ml);
