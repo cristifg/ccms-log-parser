@@ -317,6 +317,9 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
     vector<CallLog> callSetupLogs;
     // TODO order by log time?
     // Positions should be ordered
+    fprintf(stdout, "Preparing call setups logs, please wait...\n");
+    fflush(stdout);
+    int openCount = 0;
     for (auto openposition = opens.cbegin(); openposition != opens.cend(); ++openposition) {
         // move to associated link
         auto linkposition = links.cbegin();
@@ -335,11 +338,17 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
             callLog.ALogs = move(alogs);
             callSetupLogs.push_back(callLog);
             alogs.clear();
+
+            fprintf(stdout, "\r %f%% done...", (((double)openCount) / (double)opens.size()) * 100.0f);
+            fflush(stdout);
+
+            openCount++;
         }
     }
-
+    fprintf(stdout, "\n");
     // cout << "There are " << callSetupLogs.size() << " call setup logs" << endl;
-
+    fprintf(stdout, "Preparing call maintenance logs, please wait...\n");
+    fflush(stdout);
     alogs.clear();
     vector<CallLog> callMaintenanceLogs;
     if (*links.cbegin() > *opens.cbegin()) {
@@ -356,6 +365,7 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
         alogs.clear();
     }
 
+    int linkCount = 0;
     alogs.clear();
     for (auto linkposition = links.cbegin(); linkposition != links.cend(); linkposition++) {
         auto openEndPosition = opens.cbegin();
@@ -370,11 +380,22 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
 
         callMaintenanceLogs.push_back(callLog);
         alogs.clear();
+
+        fprintf(stdout, "\r %f%% done...", (((double)linkCount) / (double)links.size()) * 100.0f);
+        fflush(stdout);
+
+        linkCount++;
     }
+
+    fprintf(stdout, "\n");
 
     // Setup csv
 
     int nrOfCalls = 0;
+
+    // int callSetupsProcessed = 0;
+
+    fprintf(stdout, "Exporting data...\n");
 
     for (auto cs = callSetupLogs.cbegin(); cs != callSetupLogs.cend(); cs++) {
 
@@ -411,6 +432,11 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
             fprintf(stdout, "\n");
         }
         // fprintf(stdout, "#calls %d avg %f \n", nrOfCalls, callMaintenanceAverageLoop);
+
+        // fprintf(stdout, "\r %f%% done...", (((double)callSetupsProcessed) / (double)callSetupLogs.size()) * 100.0f);
+        // fflush(stdout);
+        // callSetupsProcessed++;
+
         nrOfCalls++;
     }
 }
@@ -486,7 +512,9 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
             t.join();
         });
 
-        fprintf(stdout, "Merging results...\n");
+        if (enableDebug) {
+            fprintf(stdout, "Merging results...\n");
+        }
 
         // Merge all
         vector<int> allLinks;
@@ -503,7 +531,7 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         std::sort(allLinks.begin(), allLinks.end());
 
         if (enableDebug) {
-            fprintf(stdout, "%d links", allLinks.size());
+            fprintf(stdout, "%d links\n", allLinks.size());
         }
 
         // fprintf(stdout, "\n");
@@ -526,7 +554,7 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         auto mLinks = move(allLinks); //mergeLinks(allLinks);
 
         if (enableDebug) {
-            fprintf(stdout, "%d opens", allOpens.size());
+            fprintf(stdout, "%d opens\n", allOpens.size());
         }
 
         // for (auto ml : mLinks) {
@@ -588,6 +616,18 @@ int main(int argc, char** argv) {
     //     cerr << "Incorrect number of arguments. Specify log file and number of threads and chunk size in bytes and save path\nExample : ./src/ccmslogparser ./ccms_MANUAL_2021-05-06_23-02-11-264_1.log 4 1048576 ./savefile.csv";
     //     return -1;
     // }
+
+    try {
+        ifstream f(lf.filePath);
+        if (!f.good()) {
+            fprintf(stderr, "Failed to open file %s\n", lf.filePath.c_str());
+            return -1;
+        }
+        f.close();
+    } catch(const std::exception& ex) {
+        fprintf(stderr, "Failed to open file %s\n %s", lf.filePath.c_str(), ex.what());
+        return -1;
+    }
 
     lf.parsingPosition = 0;
     // lf.filePath = argv[1];
