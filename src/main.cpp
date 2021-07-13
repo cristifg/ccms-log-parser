@@ -581,7 +581,8 @@ int main(int argc, char** argv) {
     bool enableDebug = false;
     LogFile lf;
     while(1) {
-        c = getopt(argc, argv, "t:c:o:d");
+        c = getopt(argc, argv, "t:c:o:dh");
+
         if (c == -1)
             break;
 
@@ -601,6 +602,10 @@ int main(int argc, char** argv) {
             case 'd': {
                 enableDebug = true;
                 break;
+            }
+            case 'h': {
+                fprintf(stdout, "--- CCMS LOG PARSER ---\nHelps parse and analyze CCMS log files.\n\nUsage: ccmslogparser [-t threads] [-c chunksize] [-o outputpath] [-d] inputpath\n\nt : number of threads to use\nc : chunk size for each thread, log file is split into chunk\no : output file path - csv file\nd : if this flag is specified additional info will be printed to standard output\nThe last argument is the input log file path.\n");
+                return 0;
             }
         }
     }
