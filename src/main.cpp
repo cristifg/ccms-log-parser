@@ -316,10 +316,13 @@ double getAverageCycleWork(const vector<ALog>& alogs) {
     return avg;
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc, bool enableDebug) {
+void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc, const LogFile& lf, bool enableDebug) {
     cout << "calculate RTP..." << endl;
     cout << "There are " << links.size() << " session links." << endl;
     cout << "There are " << opens.size() << " session opens." << endl;
+
+
+
     CallLog callLog;
     // Calculate step 2
     // Call setup
@@ -382,20 +385,26 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
     int linkCount = 0;
     alogs.clear();
     for (auto linkposition = links.cbegin(); linkposition != links.cend(); linkposition++) {
-        auto openEndPosition = opens.cbegin();
-        for (; openEndPosition != opens.cend() && (*linkposition >= *openEndPosition); openEndPosition++);
+        auto openposition = opens.cbegin();
+        for (; openposition != opens.cend() && (*linkposition >= *openposition); openposition++);
         const int linkStartPosition = getStartPositionStep3(*linkposition, fs);
-        getALogsBetween(alogs, linkStartPosition, *openEndPosition, fs);
+        int openEndPosition = lf.numberOfBytes;
+
+        if (openposition != opens.cend()) {
+            openEndPosition = *openposition;
+        }
+
+        getALogsBetween(alogs, linkStartPosition, openEndPosition, fs);
         // callLog.linkPosition = *linkposition;
         callLog.startPosition = linkStartPosition;
-        callLog.endPosition = *openEndPosition;
+        callLog.endPosition = openEndPosition;
         callLog.ALogs = move(alogs);
         callLog.callLogType = CallLogType::CallMaintenance;
 
         callMaintenanceLogs.push_back(callLog);
         alogs.clear();
 
-        fprintf(stdout, "\r %f%% done...", (((double)linkCount) / (double)links.size()) * 100.0f);
+        fprintf(stdout, "\r %d %f%% done...", linkStartPosition, (((double)linkCount) / (double)links.size()) * 100.0f);
         fflush(stdout);
 
         linkCount++;
@@ -579,7 +588,7 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         // for (auto mo : mOpens) {
         //     fprintf(stdout, "mo %d\n", mo);
         // }
-        calcRTP(mLinks, mOpens, ilf, doc, enableDebug);
+        calcRTP(mLinks, mOpens, ilf, doc, lf, enableDebug);
     }
     catch(const exception& e)
     {
