@@ -161,8 +161,11 @@ vector<int> getAllPos(const string& chunkBuffer, const regex& reg, const int ini
     auto end = sregex_iterator();
     for (auto i = start; i != end; ++i) {
         matching = *i;
-        // int pos = matching.position(0) + initialPos;
-        positions.push_back(matching.position() + initialPos);
+        int pos = matching.position() + initialPos;
+        if (pos < 0) {
+            continue;
+        }
+        positions.push_back(pos);
         // fprintf(stdout, "Found %d matches in chunk size %d and initialpos %d at pos %d %s\n", matching.size(), chunkBuffer.size(), initialPos, pos, matching[0].str().c_str());
     }
     return positions;
@@ -180,7 +183,7 @@ vector<int> getAllOpen(const string& chunkBuffer, const int initialPos) {
     return getAllPos(chunkBuffer, openRegEx, initialPos);
 }
 
-void findAllB(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& opens) {
+void findAllEntries(string& chunkBuff, ifstream& fs, vector<int>& links, vector<int>& opens) {
     // fprintf(stdout, "findAll\n");
     int initialPos = (int)fs.tellg() - chunkBuff.size();
     // copy until next new line
@@ -222,20 +225,28 @@ vector<int> mergeOpens(const vector<int>& opens) {
     return mergedOpens;
 }
 
-void getALogsBetween(vector<ALog>& alogs, const int startposition, const int endposition, ifstream& fs) {
+void getALogsBetween(vector<ALog>& alogs, const int startposition, const int endposition, ifstream& fs, bool verbose = false) {
     const int initialPosition = fs.tellg();
     string line;
     ALog alog;
+
     fs.seekg(startposition);
     for (fstream::pos_type position = startposition; position < endposition; position = fs.tellg()) {
         getline(fs, line);
         // fprintf(stdout, "%d \n", position);
+        if (verbose) {
+            fprintf(stdout, "\rGetting ALog entries... %f%% done...", ( ((double)position) / ((double)endposition) * 100.0f ));
+        }
         if (getALog(alog, line)) {
             alogs.push_back(alog);
         }
     }
 
     fs.seekg(initialPosition);
+
+    if (verbose) {
+        fprintf(stdout, "\n");
+    }
 }
 
 // This gets the final position for Step 2
@@ -346,15 +357,18 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, r
         }
     }
     fprintf(stdout, "\n");
-    // cout << "There are " << callSetupLogs.size() << " call setup logs" << endl;
+
     fprintf(stdout, "Preparing call maintenance logs, please wait...\n");
     fflush(stdout);
+
     alogs.clear();
     vector<CallLog> callMaintenanceLogs;
+
     if (*links.cbegin() > *opens.cbegin()) {
         // no link precedings
         // Get from the start of the log until open session
-        getALogsBetween(alogs, 0, *opens.cbegin(), fs);
+
+        getALogsBetween(alogs, 0, *opens.cbegin(), fs, true);
 
         callLog.startPosition = 0;
         callLog.endPosition = *opens.cbegin();
@@ -461,7 +475,7 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
                 break;
             }
 
-            findAllB(chunkBuffer, fs, chunkLinks, chunkOpens);
+            findAllEntries(chunkBuffer, fs, chunkLinks, chunkOpens);
             if (chunkLinks.size() > 0) {
                 allLinks.insert(allLinks.end(), chunkLinks.begin(), chunkLinks.end());
             }
