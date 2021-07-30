@@ -316,12 +316,12 @@ double getAverageCycleWork(const vector<ALog>& alogs) {
     return avg;
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens, ifstream& fs, rapidcsv::Document& doc, const LogFile& lf, bool enableDebug) {
+void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Document& doc, const LogFile& lf, bool enableDebug) {
     cout << "calculate RTP..." << endl;
     cout << "There are " << links.size() << " session links." << endl;
     cout << "There are " << opens.size() << " session opens." << endl;
 
-
+    ifstream fs(lf.filePath, fstream::in);
 
     CallLog callLog;
     // Calculate step 2
@@ -499,7 +499,7 @@ void threadSearch(LogFile& lf,vector<int>& allLinks,vector<int>& allOpens, int c
         }
 
         fprintf(stdout, "\n");
-
+        fprintf(stdout, "threadSearch done...\n");
         // remaining
 
         fs.close();
@@ -588,7 +588,10 @@ void process(LogFile& lf, int chunkSize, rapidcsv::Document& doc, bool enableDeb
         // for (auto mo : mOpens) {
         //     fprintf(stdout, "mo %d\n", mo);
         // }
-        calcRTP(mLinks, mOpens, ilf, doc, lf, enableDebug);
+
+        ilf.close();
+
+        calcRTP(mLinks, mOpens, doc, lf, enableDebug);
     }
     catch(const exception& e)
     {
