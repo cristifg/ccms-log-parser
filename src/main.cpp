@@ -225,10 +225,19 @@ vector<int> mergeOpens(const vector<int>& opens) {
     return mergedOpens;
 }
 
-void getALogsBetween(vector<ALog>& alogs, const int startposition, const int endposition, ifstream& fs, bool verbose = false) {
+void getALogsBetween(vector<ALog>& alogs, const int startposition, const int endposition, ifstream& fs, const LogFile& lf, bool verbose = false) {
     const int initialPosition = fs.tellg();
     string line;
     ALog alog;
+
+    if (startposition > lf.numberOfBytes ||
+        endposition > lf.numberOfBytes ||
+        startposition < 0 ||
+        endposition < 0)
+    {
+        fprintf(stderr, "Warning! : Skipping A entries between %d - %d\n", startposition, endposition);
+        return;
+    }
 
     fs.seekg(startposition);
     for (fstream::pos_type position = startposition; position < endposition; position = fs.tellg()) {
@@ -316,23 +325,13 @@ double getAverageCycleWork(const vector<ALog>& alogs) {
     return avg;
 }
 
-void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Document& doc, const LogFile& lf, bool enableDebug) {
-    cout << "calculate RTP..." << endl;
-    cout << "There are " << links.size() << " session links." << endl;
-    cout << "There are " << opens.size() << " session opens." << endl;
-
-    ifstream fs(lf.filePath, fstream::in);
-
-    CallLog callLog;
-    // Calculate step 2
-    // Call setup
-    vector<ALog> alogs;
-
-    vector<CallLog> callSetupLogs;
-    // TODO order by log time?
-    // Positions should be ordered
+vector<CallLog> prepareCallSetupLogs(const vector<int>& links, const vector<int>& opens, ifstream& fs, const LogFile& lf) {
     fprintf(stdout, "Preparing call setups logs, please wait...\n");
     fflush(stdout);
+
+    CallLog callLog;
+    vector<ALog> alogs;
+    vector<CallLog> callSetupLogs;
     int openCount = 0;
     for (auto openposition = opens.cbegin(); openposition != opens.cend(); ++openposition) {
         // move to associated link
@@ -343,7 +342,7 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Docum
         if (*openposition < *linkposition) {
             // fprintf(stdout, "Get alogs between %d %d\n", *openposition, *linkposition);
             auto endposition = getEndPositionStep2(*linkposition, fs);
-            getALogsBetween(alogs, *openposition, endposition, fs);
+            getALogsBetween(alogs, *openposition, endposition, fs, lf);
             // Calculate step 2
             callLog.startPosition = *openposition;
             callLog.endPosition = endposition;
@@ -359,19 +358,21 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Docum
             openCount++;
         }
     }
-    fprintf(stdout, "\n");
 
-    fprintf(stdout, "Preparing call maintenance logs, please wait...\n");
-    fflush(stdout);
+    return callSetupLogs;
+}
 
-    alogs.clear();
+vector<CallLog> prepareCallMaintenanceLogs(const vector<int>& links, const vector<int>& opens, ifstream& fs, const LogFile& lf) {
+    CallLog callLog;
+    vector<ALog> alogs;
+
     vector<CallLog> callMaintenanceLogs;
 
     if (*links.cbegin() > *opens.cbegin()) {
         // no link precedings
         // Get from the start of the log until open session
 
-        getALogsBetween(alogs, 0, *opens.cbegin(), fs, true);
+        getALogsBetween(alogs, 0, *opens.cbegin(), fs, lf, true);
 
         callLog.startPosition = 0;
         callLog.endPosition = *opens.cbegin();
@@ -394,7 +395,7 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Docum
             openEndPosition = *openposition;
         }
 
-        getALogsBetween(alogs, linkStartPosition, openEndPosition, fs);
+        getALogsBetween(alogs, linkStartPosition, openEndPosition, fs, lf);
         // callLog.linkPosition = *linkposition;
         callLog.startPosition = linkStartPosition;
         callLog.endPosition = openEndPosition;
@@ -409,6 +410,73 @@ void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Docum
 
         linkCount++;
     }
+
+    return callMaintenanceLogs;
+}
+
+void calcRTP(const vector<int>& links, const vector<int>& opens, rapidcsv::Document& doc, const LogFile& lf, bool enableDebug) {
+    cout << "calculate RTP..." << endl;
+    cout << "There are " << links.size() << " session links." << endl;
+    cout << "There are " << opens.size() << " session opens." << endl;
+
+    ifstream fs(lf.filePath, fstream::in);
+
+    // Calculate step 2
+    // Call setup
+
+    vector<CallLog> callSetupLogs = prepareCallSetupLogs(links, opens, fs, lf);
+    // TODO order by log time?
+    // Positions should be ordered
+
+    fprintf(stdout, "\n");
+
+    fprintf(stdout, "Preparing call maintenance logs, please wait...\n");
+    fflush(stdout);
+
+    vector<CallLog> callMaintenanceLogs = prepareCallMaintenanceLogs(links, opens, fs, lf);
+
+    // if (*links.cbegin() > *opens.cbegin()) {
+    //     // no link precedings
+    //     // Get from the start of the log until open session
+
+    //     getALogsBetween(alogs, 0, *opens.cbegin(), fs, true);
+
+    //     callLog.startPosition = 0;
+    //     callLog.endPosition = *opens.cbegin();
+    //     callLog.ALogs = move(alogs);
+    //     callLog.callLogType = CallLogType::CallMaintenance;
+
+    //     callMaintenanceLogs.push_back(callLog);
+    //     alogs.clear();
+    // }
+
+    // int linkCount = 0;
+    // alogs.clear();
+    // for (auto linkposition = links.cbegin(); linkposition != links.cend(); linkposition++) {
+    //     auto openposition = opens.cbegin();
+    //     for (; openposition != opens.cend() && (*linkposition >= *openposition); openposition++);
+    //     const int linkStartPosition = getStartPositionStep3(*linkposition, fs);
+    //     int openEndPosition = lf.numberOfBytes;
+
+    //     if (openposition != opens.cend()) {
+    //         openEndPosition = *openposition;
+    //     }
+
+    //     getALogsBetween(alogs, linkStartPosition, openEndPosition, fs);
+    //     // callLog.linkPosition = *linkposition;
+    //     callLog.startPosition = linkStartPosition;
+    //     callLog.endPosition = openEndPosition;
+    //     callLog.ALogs = move(alogs);
+    //     callLog.callLogType = CallLogType::CallMaintenance;
+
+    //     callMaintenanceLogs.push_back(callLog);
+    //     alogs.clear();
+
+    //     fprintf(stdout, "\r %d %f%% done...", linkStartPosition, (((double)linkCount) / (double)links.size()) * 100.0f);
+    //     fflush(stdout);
+
+    //     linkCount++;
+    // }
 
     fprintf(stdout, "\n");
 
